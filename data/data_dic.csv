@@ -1,0 +1,30 @@
+Variable,Description
+YEAR,(2014 - 2019)
+MONTH,(1 - 12) Jan - Dec
+DAY_OF_MONTH,(1 - 31) 
+DAY_OF_WEEK,1 (Monday) - 7 (Sunday)
+OP_UNIQUE_CARRIER,unique carrier code
+TAIL_NUM,plane tail number
+ORIGIN,origin IATA airport code
+ORIGIN_STATE_ABR,origin state (abbreviated)
+DEST,destination IATA airport code
+DEST_STATE_ABR,destination state (abbreviated)
+CRS_DEP_TIME,scheduled departure time (local hhmm)
+DEP_TIME,actual departure time (local hhmm)
+DEP_DELAY,departure delay in minutes
+TAXI_OUT,taxi out time in minutes
+TAXI_IN,taxi in time in minutes
+CRS_ARR_TIME,scheduled arrival time (local hhmm)
+ARR_TIME,actual arrival time (local hhmm)
+ARR_DELAY,arrival delay in minutes
+CANCELLED,was the flight cancelled? (1 = yes 0 = no)
+CANCELLATION_CODE,reason (A = carrier B = weather C = NAS D = security)
+DIVERTED,was the flight diverted? (1 = yes 0 = no)
+CRS_ELAPSED_TIME,in minutes
+ACTUAL_ELAPSED_TIME,in minutes
+DISTANCE,in miles
+CARRIER_DELAY,in minutes
+WEATHER_DELAY,in minutes
+NAS_DELAY,in minutes
+SECURITY_DELAY,in minutes
+LATE_AIRCRAFT_DELAY,in minutes

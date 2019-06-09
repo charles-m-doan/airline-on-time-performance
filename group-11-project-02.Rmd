@@ -1,0 +1,403 @@
+---
+title: "Oh No! The flight is late again."
+author: "Charles Doan, Prachiti Garge, Colin O'Neil, Eric Perez"
+date: "OSU, Spring Semester: 04/23/2019"
+output: 
+  html_document:
+    toc: yes
+    df_print: paged
+    theme: spacelab
+    indent: true
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(fig.align = "center",
+                      #fig.height = 10,
+                      #fig.width = 10,
+                      #fig.asp=0.5,
+                      echo=FALSE,
+                      warning=FALSE,
+                      message=FALSE,
+                      error=FALSE)
+```
+
+```{r}
+#if (!require("RSQLite")) { install.packages("RSQLite") }
+library(DBI)
+#if (!require("dbplyr")) { install.packages("dbplyr") }
+library(dplyr)
+#if (!require("tidyr")) { install.packages("tidyr") }
+library(tidyr)
+#if (!require("tibble")) { install.packages("tibble") }
+library(tibble)
+# if (!require("usmap")){ install.packages("usmap") }
+library(usmap)
+# if (!require("ggplot2")){ install.packages("ggplot2") }
+library(ggplot2)
+#if (!require("kableExtra")){ install.packages("kableExtra") }
+library(kableExtra)
+if (!require("pander")){ install.packages("pander") }
+library(pander)
+
+flightData <- dbConnect(RSQLite::SQLite(), paste(getwd(),"/data/","flightData.sqlite3",sep=""))
+flights <- tbl(flightData, "flights")
+```
+
+```{r}
+carrier_names <- read.csv(file = "./data/carriers.csv", header = TRUE, stringsAsFactors = FALSE)
+
+add_full_names <- function(flight_dataframe) {
+  abbrevs <- unlist(flight_dataframe[,1], use.names = FALSE)
+  full_names <- unlist(carrier_names[,1], use.names = FALSE)
+  indices <- match(abbrevs, full_names)
+  names_to_add <- carrier_names[indices,2]
+  flight_dataframe <- add_column(flight_dataframe, Name = names_to_add, .after = 0)
+}
+```
+
+
+***
+
+## Abstract
+Our analysis investigated differences between the major airline carriers in terms of delays and cancellations. Using ANOVA and TukeyHSD tests we determined that Delta Airlines had the lowest mean arrival delay
+. 
+Using the Chi-Squared and Pairwise Comparison tests with Bonferroni correction, we found that Delta Airlines also had the lowest proportion of cancellations and significant arrival delays (greater than 15 minutes).
+
+This lead to the conclusion that Delta Airlines is the best airline carrier. However, due to the applicability of Simpson's paradox, this result should be accepted with a little skepticism. Differences in routes, weather, and other factors attribute to cancellations and delays, and were not a part of our analysis. By looking at states in the US and using Chi-Squared and Pairwise Comparison tests we concluded that there is a difference between states in terms of cancellations and arrival delays, and northern and eastern states are more prone to cancellations than southern and western states. We believe this is a factor that a more thorough analysis would need to account for.
+
+***
+
+## Introduction
+Which is the best airline in the United States?  Depending on the metrics one cares about, "best" could have many definitions.  However, most people would expect a good airline to get them where they need to be without frequent cancellations or significant delays.  To determine which airlines emerge as winners, we will look at 5 years of flight data from 2014 to 2019, and compare the carriers to one another using statistics that we believe are important metrics of quality. These statistics will be tested for significance using "analysis of variance" techniques to verify that differences across sample data for the carriers are likely to represent true differences across the populations.
+
+***
+
+## Methods
+In our analysis, we performed tests on three criteria that we believe are important metrics of quality for an airline: average delay time, proportion of delays greater than 15 minutes, and proportion of cancellations. When considering delay time, we chose "arrival" delay over "departure" delay, because we believe this is more representative of the concerns of real customers. Being stalled at an airport might not be fun, but as long as one arrives at one's destination on-time there is little cause for complaint. Additionally, in order to avoid overwhelming the presentation with detail, for the ANOVA section we chose to limit our analysis to the top 3 major airline carriers, and for the Chi-Square section to the top 8. This ranking is based on the total number of flights over the 5 year period as represented in the following table:
+
+```{r}
+  flights %>%
+  group_by(OP_UNIQUE_CARRIER) %>%
+  summarize(N=n()) %>%
+  collect() %>%
+  arrange(desc(N)) -> flight_dataframe
+  flight_dataframe %>% top_n(3, N) %>% select(OP_UNIQUE_CARRIER) %>% unlist(use.names = FALSE) -> top_3_carriers
+
+  add_full_names(flight_dataframe) %>%
+  tibble::rowid_to_column("RANK") %>%
+  kable(caption = "Top 3 and Top 8 Airlines Sorted By Number of Flights (2014-2019)",
+        col.names = c("RANK","AIRLINE","CODE","FLIGHTS")) %>%
+  row_spec(1:3, bold = TRUE, color = "black", background = "#ff8888") %>%
+  row_spec(4:8, bold = TRUE, color = "black", background = "#fdffbc") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", full_width = F))
+```
+
+
+### Anova and TukeyHSD Tests
+The first important criteria we looked at was the mean arrival delay for each carrier. By performing an ANOVA test we would be able to come to the conclusion that there is a difference between the mean arrival delays of each airline carrier. Then by performing a TukeyHSD test we can compare each airline carrier in pairs on this criteria to come to the conclusion on which airline carrier has the least mean arrival delay which we would consider as making that airline carrier the "best".
+
+### Chi-Squared and Pairwise Comparison Tests
+The second important criteria we looked at was the proportion of arrival delays greater than 15 minutes of the airline carriers. For this we believed that running a chi-squared test would be more appropriate and then use Pairwise Comparison Test for the significant arrive delay proportions in order to determine what airline carrier has the least amount of significant delays.
+
+The third important criteria we looked at was the proportion of cancelled flights of the airline carriers. For this we believed that running a chi-squared test would be more appropriate and then use Pairwise Comparison Test for the significant arrive delay proportions in order to determine what airline carrier has the lowest proportion of cancelled flights.
+
+## Results
+
+### Anova and TukeyHSD Tests
+
+For this section, due to the large amount of data it is only practical to work on the top 3 major carriers from the list above. After performing ANOVA on the mean arrival delay we observed the following results:
+
+```{r}
+flights %>%
+  select (OP_UNIQUE_CARRIER, ARR_DELAY) %>%
+  filter(OP_UNIQUE_CARRIER %in% top_3_carriers) %>%
+  na.omit() -> flight_dataframe
+
+anova_model <- aov(ARR_DELAY ~ OP_UNIQUE_CARRIER, data = flight_dataframe)
+anova_model %>%
+  anova() %>%
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", full_width = F))
+```
+
+The p-value of 0 suggests that there is certainly at least one difference between the 3 carriers. However, in order to isolate any differences we performed post-hoc comparisons using the TukeyHSD method with a confidence level of 95%.
+```{r}
+tukey_hsd <- TukeyHSD(anova_model,conf.level=0.95)
+tukey_hsd
+```
+
+
+```{r}
+par(mar=c(2,7,2,2))
+plot(tukey_hsd, las=2)
+```
+
+Here, we get statistically significant results for all comparisons. From the results, we see that the carrier WN (Southwest) has a greater mean arrival delay then either AA (American Airlines) or DL (Delta Airlines). The mean arrival delay time is greater for AA then DL. Hence, from this data DL (Delta Airlines) seems to be the best carrier to minimize arrival delay.
+
+
+### Proportion Tests for Top 8 Carriers
+
+#### Significant Delays (Greater than 15 Minutes)
+
+```{r}
+# Pull specific data to work with
+  flights %>%
+  select(OP_UNIQUE_CARRIER, ARR_DELAY) %>%
+  mutate(SIG_DELAYS = as.integer(ARR_DELAY > 15)) %>%
+  group_by(OP_UNIQUE_CARRIER) %>%
+  summarize(N=n(), SIG_DELAYS = sum(SIG_DELAYS, na.rm = TRUE)) %>%
+  collect() %>%
+  mutate(PROP_DELAYS = SIG_DELAYS/N) %>%
+  top_n(8, N) %>%
+  arrange(PROP_DELAYS) -> flight_dataframe
+```
+
+```{r}
+#Perform all analysis on data prior to display
+flight_dataframe %>% select(SIG_DELAYS) %>% unlist(use.names = FALSE) -> n_delayed
+flight_dataframe %>% transmute(NOT_DELAYED = N-SIG_DELAYS) %>% unlist(use.names = FALSE) -> n_not_delayed
+flight_dataframe %>% select(OP_UNIQUE_CARRIER) %>% unlist(use.names = FALSE) -> carrier_codes
+
+test_matrix <- matrix(c(n_delayed, n_not_delayed), byrow=TRUE, nrow = 2)
+colnames(test_matrix) <- carrier_codes
+rownames(test_matrix) <- c("Delayed","Not Delayed")
+
+test_results <- chisq.test(test_matrix)
+pairwise_test_results <- pairwise.prop.test(x = t(test_matrix), p.adjust.method = "bonferroni")
+```
+
+While mean arrival delay may give us useful information, the delays people tend to care about are those that are "significant". Therefore, we felt it would be more helpful to compare proportions of "significant" delays across airlines. Here we have chosen to define "significant" as any delay greater than 15 minutes. Those less than 15 minutes are not counted as delays. Using this definition, here is a summary table of significant delays for the top 8 airlines.
+
+```{r}
+add_full_names(flight_dataframe) %>%
+  kable(caption = "Top 8 Most Flown Airlines (Delays)",
+        col.names = c("AIRLINE","CODE","FLIGHTS","SIGNIFICANT DELAYS","PROPORTION")) %>%
+  column_spec(c(1,5), bold = TRUE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", full_width = F))
+```
+
+From the table there certainly seems to be a difference among the airlines, but can we make this conclusion? Doubtful. It would be bad practice to take these results at face value, therefore we will perform Chi-squared testing at a significance level of 0.05 to judge whether the apparent differences are likely to reflect true differences in the populations.
+
+<font size="4"> Chi-Square Test for Homogeny </font>
+
+```{r}
+addmargins(test_matrix, FUN = list(Total = sum), quiet = TRUE) %>%
+  kable() %>%
+  column_spec(1, bold = TRUE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", full_width = F))
+```
+
+```{r}
+# Display Chi-Squared Result
+data.frame(unname(test_results$statistic), unname(test_results$parameter), unname(test_results$p.value)) %>%
+  kable(col.names = c("Test Statistic", "Degrees of Freedom", "p-value")) %>%
+  kable_styling(bootstrap_options = c("condensed", full_width = F))
+```
+
+The test suggests that there is at least one true difference among the airlines. However, to determine whether there are one or many differences, we perform pairwise comparisons using Bonferroni correction. The p-values for the post-hoc testing are summarized in the following table.
+
+```{r}
+# Display Pair-Wise Chi-Squared Results
+pairwise_test_results$p.value %>%
+  kable() %>%
+  column_spec(c(1), bold = TRUE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", full_width = F))
+```
+
+From the table we see that all pair-wise comparison results are well below the standard significance level of 0.05.  Therefore we conclude that all airlines do genuinely differ from one another in terms of delay proportions, and because our sample sizes were very large, we consider the sample proportions to be good estimates of the true population proportions. These are summarized in the following bar plot:
+
+```{r}
+barplot(prop.table(test_matrix,2),
+        beside=FALSE,
+        legend.text=TRUE,
+        ylim=c(0,1),
+        ylab="Proportions",
+        col=rep(c("#ff3b24","#56e8ff"),each=1),
+        border=rep(c("red","#00aec9"),each=1))
+```
+
+#### Cancellations
+
+Delays are an important metric for any airline, but arguably cancellations are even more important. Thus, we will perform the same analysis as previously, only this time using proportions of cancellations across the airlines.
+
+```{r}
+# Pull specific data to work with
+  flights %>%
+  select(OP_UNIQUE_CARRIER, CANCELLED) %>%
+  group_by(OP_UNIQUE_CARRIER) %>%
+  summarize(N=n(), CANCELLED = sum(CANCELLED, na.rm = TRUE)) %>%
+  collect() %>%
+  mutate(PROP_CANCELLED = CANCELLED/N) %>%
+  top_n(8, N) %>%
+  arrange(PROP_CANCELLED) -> flight_dataframe
+```
+
+```{r}
+#Perform all analysis on data prior to display
+flight_dataframe %>% select(CANCELLED) %>% unlist(use.names = FALSE) -> n_cancelled
+flight_dataframe %>% transmute(NOT_CANCELLED = N-CANCELLED) %>% unlist(use.names = FALSE) -> n_not_cancelled
+flight_dataframe %>% select(OP_UNIQUE_CARRIER) %>% unlist(use.names = FALSE) -> carrier_codes
+
+test_matrix <- matrix(c(n_cancelled, n_not_cancelled), byrow=TRUE, nrow = 2)
+colnames(test_matrix) <- carrier_codes
+rownames(test_matrix) <- c("Cancelled","Not Cancelled")
+
+test_results <- chisq.test(test_matrix)
+pairwise_test_results <- pairwise.prop.test(x = t(test_matrix), p.adjust.method = "bonferroni")
+```
+
+```{r}
+add_full_names(flight_dataframe) %>%
+  kable(caption = "Top 8 Most Flown Airlines (Cancellations)",
+        col.names = c("AIRLINE","CODE","FLIGHTS","CANCELLATIONS","PROPORTION")) %>%
+  column_spec(c(1,5), bold = TRUE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", full_width = F))
+```
+
+<font size="4"> Chi-Square Test for Homogeny </font>
+
+```{r}
+addmargins(test_matrix, FUN = list(Total = sum), quiet = TRUE) %>%
+  kable() %>%
+  column_spec(1, bold = TRUE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", full_width = F))
+```
+
+```{r}
+# Display Chi-Squared Result
+data.frame(unname(test_results$statistic), unname(test_results$parameter), unname(test_results$p.value)) %>%
+  kable(col.names = c("Test Statistic", "Degrees of Freedom", "p-value")) %>%
+  kable_styling(bootstrap_options = c("condensed", full_width = F))
+```
+
+As before, there appears to be at least one true difference among the airlines.  But of course, we can't stop there.  The following table summarizes the p-values of the post-hoc pairwise testing, using Bonferroni correction once again.
+
+```{r}
+# Display Pair-Wise Chi-Squared Results
+pairwise_test_results$p.value %>%
+  kable() %>%
+  column_spec(c(1), bold = TRUE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", full_width = F))
+```
+
+
+From the p-values we can clearly see that there are likely to be true differences in cancellation proportions among the airlines, and at an even more extreme level than the differences in delay proportions from the previous analysis. Due to the large sample sizes, the sample proportions are likely good estimates of the true population proportions, and we have summarized these in the following bar plot:
+
+```{r}
+barplot(prop.table(test_matrix,2),
+        beside=FALSE,
+        legend.text=TRUE,
+        ylim=c(0,1),
+        ylab="Proportions",
+        col=rep(c("#ff6767","#5cff8d"),each=1),
+        border=rep(c("#ff3030","#22c653"),each=1))
+```
+
+
+***
+
+## Discussion
+
+### Are These Tests "Valid"?
+
+```{r}
+# Pull specific data to work with
+  flights %>%
+  select(ORIGIN_STATE_ABR, CANCELLED) %>%
+  group_by(ORIGIN_STATE_ABR) %>%
+  summarize(N=n(), CANCELLED = sum(CANCELLED, na.rm = TRUE)) %>%
+  collect() %>%
+  mutate(PROP_CANCELLED = CANCELLED/N) %>%
+  arrange(desc(PROP_CANCELLED)) -> flight_dataframe
+```
+
+```{r}
+#Perform all analysis on data prior to display
+flight_dataframe %>% select(CANCELLED) %>% unlist(use.names = FALSE) -> n_cancelled
+flight_dataframe %>% transmute(NOT_CANCELLED = N-CANCELLED) %>% unlist(use.names = FALSE) -> n_not_cancelled
+flight_dataframe %>% select(ORIGIN_STATE_ABR) %>% unlist(use.names = FALSE) -> state_codes
+
+test_matrix <- matrix(c(n_cancelled, n_not_cancelled), byrow=TRUE, nrow = 2)
+colnames(test_matrix) <- state_codes
+rownames(test_matrix) <- c("Cancelled","Not Cancelled")
+
+test_results <- chisq.test(test_matrix)
+pairwise_test_results <- pairwise.prop.test(x = t(test_matrix), p.adjust.method = "bonferroni")
+
+p_values <- pairwise_test_results$p.value
+valid_p_values <- 0 # Non "NA" p-values
+    count <- 1
+    for(i in 1:length(p_values[,1]))
+      {
+      for(j in 1:length(p_values[1,]))
+        {
+        if(!is.na(p_values[i,j]))
+          {
+          valid_p_values[count] <- p_values[i,j]
+          count <- count + 1
+          }
+        }
+      }
+sig_p_values <- valid_p_values[c(valid_p_values < 0.05)]
+
+list(N = length(valid_p_values),
+     Prop = length(sig_p_values)/length(valid_p_values),
+     Mean = mean(valid_p_values),
+     SD = sd(valid_p_values),
+     Min = min(valid_p_values),
+     Qt025 = unname(quantile(valid_p_values, 0.025)),
+     Q1 = unname(quantile(valid_p_values, 0.25)),
+     Med = unname(quantile(valid_p_values, 0.5)),
+     Q3 = unname(quantile(valid_p_values, 0.75)),
+     Qt975 = unname(quantile(valid_p_values, 0.975)),
+     Max = max(valid_p_values)) %>%
+  data.frame() -> p_value_summary
+```
+
+
+As nice as it would be to simply take our test results at face value and conclude that Delta is the "best" airline, the reality is almost certainly more complicated.  Arguably bulk comparisons like these are not truly valid due to the presence of confounding variables.  For instance, there are many differences in flight routes offered by the various carriers, and some routes may be much more prone to cancellations or delays than others. For instance, consider the following table and map of cancellation proportions across the states:
+
+```{r}
+as_tibble(flight_dataframe)
+#flight_dataframe %>%
+#  kable(caption = "Cancellations Across United States",
+#        col.names = c("STATE","FLIGHTS","CANCELLATIONS","PROPORTION")) %>%
+#  column_spec(c(1,4), bold = TRUE) %>%
+#  kable_styling(bootstrap_options = c("striped", "hover", "condensed", full_width = F))
+```
+
+```{r}
+flight_dataframe %>% 
+transmute(fips=usmap::fips(state = ORIGIN_STATE_ABR), percent_cancellations = CANCELLED/N) -> state_cancellations
+  plot_usmap(data = state_cancellations, values = "percent_cancellations", lines = "dodgerblue", labels = FALSE) + 
+  scale_fill_continuous(low = "white", high = "red", name = "Percent Cancellations (2014-2019)", label = scales::percent) + 
+  theme(legend.position = "right")
+```
+
+After performing pairwise Chi-square tests on cancellations proportions for all of the states, we summarize the p-values in the following table.
+
+```{r}
+  p_value_summary %>%
+  kable(col.names = c("p-values", "Proportion Significant", "Mean", "SD", "Min", "Qt 2.5", "Q1", "Median", "Q3", "Qt 97.5", "Max")) %>%
+  kable_styling(bootstrap_options = c("condensed", full_width = F))
+```
+
+It appears that there is a genuine difference among states, as most of the p-values are significant. It seems to suggest that northern and eastern states are more prone to cancellations than southern and western states. Are the routes of all carriers distributed uniformly throughout the United States? Do all of these routes recieve equal traffic? This seems impossible. Therefore, to simply average all of the flights without taking account of individual routes probably gives an unfair advantage to some carriers over others.
+
+### Final Thoughts
+
+We know that different carriers offer different routes--some of which may be "easier" than others, so in many cases we are comparing apples to oranges.  One potential way to correct for this would be to treat each individual route (from one airport to another) as standalone round-robin "tournaments" using pair-wise comparisons between the airlines that offer the route. A "win" would be determined by stastically significant greater performance relative to opponents using the yearly average (or proportion) for the given route.  Thereby one could create a table of "wins" and "losses" for all carriers relative to one another.  These win-loss ratings could even be implemented in an "ELO" ranking system in order to further correct for differences in route difficulty. For instance, if the flight from Boston to Chicago is "easy" and the flight from Seattle to Miami is "difficult", then comparing the win-loss ratios of airlines that offer the first route relative to those offering the second wouldn't be a fair comparison without some sort of adjustment.  The ELO system would correct for this given enough comparisons, because those who pick up wins on "easy" routes will ultimately yield higher rating rewards when "defeated" by other airlines for the routes that they have in common.  It isn't a perfect solution, but it would likely yield a more reliable approximation than merely comparing bulk statistics as we have done here.
+
+## Apendix
+
+The variables contained in the data set are:  
+```{r}
+read.csv("./data/data_dic.csv") %>%
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", full_width = F))
+```
+
+```{r}
+# Always include this at the end of script
+#dbDisconnect(flightData)
+```
